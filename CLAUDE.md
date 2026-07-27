@@ -23,8 +23,80 @@ See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 - **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
 - **Database** (PostgreSQL) → users, channels, videos, comments, likes
 - **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Message Queue** (BullMQ/Redis) → video processing job queue
 - **Email Service** (SMTP) → account confirmation and password recovery
+
+## Videos Module (Phase 03)
+
+The video upload and processing pipeline uses a multipart S3 upload flow backed by BullMQ for async processing.
+
+### REST Endpoints (`/videos`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/videos/channel/mine` | JWT | List current user's channel videos |
+| `GET` | `/videos/:publicId` | Public | Get video details by public ID |
+| `POST` | `/videos/drafts` | JWT | Create a draft video entry |
+| `POST` | `/videos/:publicId/uploads/initiate` | Owner | Initiate multipart S3 upload |
+| `POST` | `/videos/:publicId/uploads/parts` | Owner | Generate presigned URLs for upload parts |
+| `POST` | `/videos/:publicId/uploads/complete` | Owner | Complete multipart upload, enqueue processing |
+| `POST` | `/videos/:publicId/uploads/abort` | Owner | Abort upload, reset to draft |
+| `GET` | `/videos/:publicId/stream` | Public | Presigned streaming URL (6h expiry) |
+| `GET` | `/videos/:publicId/download` | Public | Presigned download URL (5min expiry) |
+| `POST` | `/videos/:publicId/retry` | Owner | Retry processing from ERROR state |
+
+### Video Status State Machine
+
+```
+DRAFT → UPLOADING → PROCESSING → READY
+                  ↘ ERROR ↗
+```
+
+Processing steps within `PROCESSING`: `METADATA` (ffprobe) then `THUMBNAIL` (ffmpeg frame extraction).
+
+### Queue (BullMQ + Redis)
+
+- **Queue name:** `videos`
+- **Job:** `process-video` — payload `{ videoId }`
+- **Processor:** `VideoProcessor` in `video-processor.ts` — runs ffprobe for metadata extraction and ffmpeg for thumbnail generation
+- **Retry:** up to 3 retries on failure, then moves to `ERROR` status
+- **Worker process:** `src/worker.ts` boots a standalone NestJS context (`WorkerModule`) with no HTTP server, consuming from the `videos` queue
+
+### Storage (MinIO / S3)
+
+- **Client:** `@aws-sdk/client-s3` with `forcePathStyle: true` (MinIO compatibility)
+- **Bucket:** `streamtube` (auto-created on startup via `minio-init` Compose service)
+- **Object keys:** `videos/{public_id}/original.{ext}` and `videos/{public_id}/thumbnail.jpg`
+- **Upload flow:** multipart S3 — initiate → presign parts → complete → enqueue processing
+- **Streaming/download:** presigned GET URLs (configurable expiry per endpoint)
+
+### Compose Services Added
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| `redis` | `redis:7-alpine` | BullMQ backend |
+| `minio` | `minio/minio` | S3-compatible object storage |
+| `minio-init` | `minio/mc` | Auto-creates `streamtube` bucket |
+| `video-worker` | Custom (Dockerfile.dev) | Standalone BullMQ worker process |
+
+### Module Structure (`nestjs-project/src/videos/`)
+
+```
+videos/
+├── videos.module.ts          # Module definition (TypeORM + BullMQ + controller/service)
+├── videos.controller.ts      # 10 endpoints for upload, streaming, download, retry
+├── videos.service.ts         # CRUD, status transitions, ownership checks, queue enqueue
+├── videos.constants.ts       # ALLOWED_TRANSITIONS state machine
+├── video-processor.ts        # BullMQ @Processor('videos') — ffprobe + ffmpeg
+├── worker.module.ts          # Standalone module for the worker process
+├── storage.module.ts         # ConfigModule + StorageService export
+├── storage.service.ts        # S3/MinIO client (multipart, presigned URLs, put/delete)
+├── entities/video.entity.ts  # Video entity (VideoStatus enum, ProcessingStep enum)
+├── dto/                      # CreateDraftDto, UploadPartsDto, CompleteUploadDto
+├── decorators/video.decorator.ts  # @VideoParam() param decorator
+├── guards/video-owner.guard.ts    # Ownership resolution guard
+└── exceptions/video-errors.ts     # Domain exceptions
+```
 
 ## Docker Networking
 
