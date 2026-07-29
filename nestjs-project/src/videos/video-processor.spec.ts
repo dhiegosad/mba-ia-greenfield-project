@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { Job } from 'bullmq';
 import { execFile } from 'node:child_process';
-import { writeFile, unlink, readFile } from 'node:fs/promises';
+import { unlink, readFile } from 'node:fs/promises';
 import { VideoProcessor } from './video-processor';
 import { VideosService } from './videos.service';
 import { StorageService } from './storage.service';
@@ -20,18 +20,6 @@ jest.mock('node:fs/promises', () => ({
 
 describe('VideoProcessor', () => {
   let processor: VideoProcessor;
-  let videosService: jest.Mocked<
-    Pick<
-      VideosService,
-      'findById' | 'findByPublicId' | 'updateStatus' | 'setVideoMetadata'
-    >
-  >;
-  let storageService: jest.Mocked<
-    Pick<
-      StorageService,
-      'getVideoKey' | 'getThumbnailKey' | 'presignGetUrl' | 'putObject'
-    >
-  >;
 
   const mockVideosService = {
     findById: jest.fn(),
@@ -103,8 +91,6 @@ describe('VideoProcessor', () => {
     }).compile();
 
     processor = module.get(VideoProcessor);
-    videosService = module.get(VideosService);
-    storageService = module.get(StorageService);
   });
 
   describe('process', () => {
@@ -126,7 +112,7 @@ describe('VideoProcessor', () => {
 
       await processor.process({
         data: { videoId: 'v-uuid' },
-      } as Job);
+      } as unknown as Job<{ videoId: string }>);
 
       expect(mockVideosService.updateStatus).toHaveBeenCalledWith(
         'v-uuid',
@@ -163,7 +149,9 @@ describe('VideoProcessor', () => {
     it('should throw and handle error for non-existent video', async () => {
       mockVideosService.findById.mockResolvedValue(null);
 
-      const job = { data: { videoId: 'nonexistent' } } as Job;
+      const job = { data: { videoId: 'nonexistent' } } as unknown as Job<{
+        videoId: string;
+      }>;
 
       await expect(processor.process(job)).rejects.toThrow(
         'Video nonexistent not found',
@@ -180,7 +168,9 @@ describe('VideoProcessor', () => {
         .mockImplementationOnce(callbackWith(''));
       (readFile as jest.Mock).mockResolvedValue(thumbnailBuffer);
 
-      await processor.process({ data: { videoId: 'v-uuid' } } as Job);
+      await processor.process({
+        data: { videoId: 'v-uuid' },
+      } as unknown as Job<{ videoId: string }>);
 
       expect(unlink).toHaveBeenCalledTimes(2);
     });

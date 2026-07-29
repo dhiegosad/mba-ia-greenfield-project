@@ -18,6 +18,47 @@ import { cleanAllTables } from '../src/test/create-test-data-source';
 
 const execFileAsync = promisify(execFile);
 
+interface DraftBody {
+  id: string;
+  public_id: string;
+  status: string;
+}
+
+interface InitiateBody {
+  upload_id: string;
+  max_parts: number;
+  min_part_size: number;
+}
+
+interface PartsBody {
+  parts: { part_number: number; upload_url: string }[];
+}
+
+interface CompleteBody {
+  status: string;
+}
+
+interface VideoInfoBody {
+  public_id: string;
+  status: string;
+  channel: Record<string, unknown>;
+}
+
+interface ChannelVideosBody {
+  videos: unknown[];
+}
+
+interface StreamBody {
+  url: string;
+  expires_in: number;
+}
+
+interface DownloadBody {
+  url: string;
+  expires_in: number;
+  filename: string;
+}
+
 const pollUntil = async (
   fn: () => Promise<boolean>,
   timeoutMs = 60000,
@@ -66,12 +107,9 @@ describe('Videos (e2e)', () => {
 
   beforeEach(async () => {
     await cleanAllTables(dataSource);
-    // Reset throttler — clear pending timeouts before clearing the map,
-    // otherwise stale timer callbacks destructure undefined entries.
-    const timeoutIds = (throttlerStorage as any).timeoutIds as Map<
-      string,
-      number[]
-    >;
+    const timeoutIds = (
+      throttlerStorage as unknown as { timeoutIds: Map<string, number[]> }
+    ).timeoutIds;
     timeoutIds.forEach((timeouts) => timeouts.forEach(clearTimeout));
     timeoutIds.clear();
     throttlerStorage.storage.clear();
@@ -82,12 +120,20 @@ describe('Videos (e2e)', () => {
     password = 'password123',
   ): Promise<string> {
     const authService = app.get(AuthService);
-    const mailServiceInstance = (authService as any).mailService;
+
+    const mailServiceInstance = (
+      authService as unknown as {
+        mailService: {
+          sendConfirmationEmail: (...args: unknown[]) => Promise<void>;
+        };
+      }
+    ).mailService;
     let capturedToken = '';
     jest
       .spyOn(mailServiceInstance, 'sendConfirmationEmail')
-      .mockImplementationOnce(async (_e: string, _n: string, t: string) => {
+      .mockImplementationOnce((_e: string, _n: string, t: string) => {
         capturedToken = t;
+        return Promise.resolve();
       });
     await request(app.getHttpServer())
       .post('/auth/register')
@@ -111,7 +157,9 @@ describe('Videos (e2e)', () => {
       .send({ email, password })
       .expect(200);
 
-    return { access_token: loginRes.body.access_token };
+    return {
+      access_token: (loginRes.body as { access_token: string }).access_token,
+    };
   }
 
   function authHeader(token: string) {
@@ -129,9 +177,10 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'my-video.mp4' })
         .expect(201);
 
-      expect(res.body.id).toBeDefined();
-      expect(res.body.public_id).toHaveLength(11);
-      expect(res.body.status).toBe('draft');
+      const body = res.body as DraftBody;
+      expect(body.id).toBeDefined();
+      expect(body.public_id).toHaveLength(11);
+      expect(body.status).toBe('draft');
     });
 
     it('should return 401 without authentication', async () => {
@@ -163,13 +212,16 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'public-video.mp4' })
         .expect(201);
 
+      const draftBody = draft.body as DraftBody;
+
       const res = await request(app.getHttpServer())
-        .get(`/videos/${draft.body.public_id}`)
+        .get(`/videos/${draftBody.public_id}`)
         .expect(200);
 
-      expect(res.body.public_id).toBe(draft.body.public_id);
-      expect(res.body.status).toBe('draft');
-      expect(res.body.channel).toBeDefined();
+      const body = res.body as VideoInfoBody;
+      expect(body.public_id).toBe(draftBody.public_id);
+      expect(body.status).toBe('draft');
+      expect(body.channel).toBeDefined();
     });
 
     it('should return 404 for non-existent video', async () => {
@@ -199,7 +251,8 @@ describe('Videos (e2e)', () => {
         .set(authHeader(access_token))
         .expect(200);
 
-      expect(res.body.videos).toHaveLength(2);
+      const body = res.body as ChannelVideosBody;
+      expect(body.videos).toHaveLength(2);
     });
 
     it('should return 401 without authentication', async () => {
@@ -222,7 +275,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'secret.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
@@ -259,16 +312,17 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'big-video.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       const init = await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
         .set(authHeader(access_token))
         .expect(201);
 
-      expect(init.body.upload_id).toBeDefined();
-      expect(init.body.max_parts).toBe(10000);
-      expect(init.body.min_part_size).toBe(5242880);
+      const initBody = init.body as InitiateBody;
+      expect(initBody.upload_id).toBeDefined();
+      expect(initBody.max_parts).toBe(10000);
+      expect(initBody.min_part_size).toBe(5242880);
 
       const partsRes = await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/parts`)
@@ -276,11 +330,12 @@ describe('Videos (e2e)', () => {
         .send({ part_numbers: [1] })
         .expect(201);
 
-      expect(partsRes.body.parts).toHaveLength(1);
-      expect(partsRes.body.parts[0].part_number).toBe(1);
-      expect(partsRes.body.parts[0].upload_url).toBeDefined();
+      const partsBody = partsRes.body as PartsBody;
+      expect(partsBody.parts).toHaveLength(1);
+      expect(partsBody.parts[0].part_number).toBe(1);
+      expect(partsBody.parts[0].upload_url).toBeDefined();
 
-      const uploadUrl = partsRes.body.parts[0].upload_url;
+      const uploadUrl = partsBody.parts[0].upload_url;
       const partData = Buffer.alloc(6 * 1024 * 1024, 'a');
       const putRes = await fetch(uploadUrl, {
         method: 'PUT',
@@ -295,7 +350,7 @@ describe('Videos (e2e)', () => {
         .send({ parts: [{ PartNumber: 1, ETag: etag }] })
         .expect(201);
 
-      expect(complete.body.status).toBe('processing');
+      expect((complete.body as CompleteBody).status).toBe('processing');
     });
 
     it('should abort upload and reset to draft', async () => {
@@ -308,7 +363,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'abort-me.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
@@ -324,7 +379,7 @@ describe('Videos (e2e)', () => {
         .get(`/videos/${publicId}`)
         .expect(200);
 
-      expect(videoInfo.body.status).toBe('draft');
+      expect((videoInfo.body as VideoInfoBody).status).toBe('draft');
     });
   });
 
@@ -340,7 +395,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'transition.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
@@ -353,7 +408,7 @@ describe('Videos (e2e)', () => {
         .send({ part_numbers: [1] })
         .expect(201);
 
-      const uploadUrl = partsRes.body.parts[0].upload_url;
+      const uploadUrl = (partsRes.body as PartsBody).parts[0].upload_url;
       const partData = Buffer.alloc(6 * 1024 * 1024, 'b');
       const putRes = await fetch(uploadUrl, {
         method: 'PUT',
@@ -385,7 +440,7 @@ describe('Videos (e2e)', () => {
         .expect(201);
 
       await request(app.getHttpServer())
-        .post(`/videos/${draft.body.public_id}/retry`)
+        .post(`/videos/${(draft.body as DraftBody).public_id}/retry`)
         .set(authHeader(access_token))
         .expect(409);
     });
@@ -402,7 +457,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'not-ready.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       await request(app.getHttpServer())
         .get(`/videos/${publicId}/stream`)
@@ -422,12 +477,14 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'anon-video.mp4' })
         .expect(201);
 
+      const publicId = (draft.body as DraftBody).public_id;
+
       await request(app.getHttpServer())
-        .get(`/videos/${draft.body.public_id}/stream`)
+        .get(`/videos/${publicId}/stream`)
         .expect(409);
 
       await request(app.getHttpServer())
-        .get(`/videos/${draft.body.public_id}/download`)
+        .get(`/videos/${publicId}/download`)
         .expect(409);
     });
   });
@@ -444,9 +501,9 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'e2e-processed.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
-      const init = await request(app.getHttpServer())
+      await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
         .set(authHeader(access_token))
         .expect(201);
@@ -457,7 +514,7 @@ describe('Videos (e2e)', () => {
         .send({ part_numbers: [1] })
         .expect(201);
 
-      const uploadUrl = partsRes.body.parts[0].upload_url;
+      const uploadUrl = (partsRes.body as PartsBody).parts[0].upload_url;
 
       const tempDir = tmpdir();
       const randPrefix = randomBytes(4).toString('hex');
@@ -493,7 +550,7 @@ describe('Videos (e2e)', () => {
           .send({ parts: [{ PartNumber: 1, ETag: etag }] })
           .expect(201);
 
-        expect(complete.body.status).toBe('processing');
+        expect((complete.body as CompleteBody).status).toBe('processing');
 
         await pollUntil(
           async () => {
@@ -510,14 +567,16 @@ describe('Videos (e2e)', () => {
         const streamRes = await request(app.getHttpServer())
           .get(`/videos/${publicId}/stream`)
           .expect(200);
-        expect(streamRes.body.url).toBeTruthy();
-        expect(streamRes.body.expires_in).toBe(21600);
+        const streamBody = streamRes.body as StreamBody;
+        expect(streamBody.url).toBeTruthy();
+        expect(streamBody.expires_in).toBe(21600);
 
         const downloadRes = await request(app.getHttpServer())
           .get(`/videos/${publicId}/download`)
           .expect(200);
-        expect(downloadRes.body.url).toBeTruthy();
-        expect(downloadRes.body.filename).toBe('e2e-processed.mp4');
+        const downloadBody = downloadRes.body as DownloadBody;
+        expect(downloadBody.url).toBeTruthy();
+        expect(downloadBody.filename).toBe('e2e-processed.mp4');
       } finally {
         await unlink(tempVideoPath).catch(() => {});
       }
@@ -536,7 +595,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'corrupt.mp4' })
         .expect(201);
 
-      const publicId = draft.body.public_id;
+      const publicId = (draft.body as DraftBody).public_id;
 
       await request(app.getHttpServer())
         .post(`/videos/${publicId}/uploads/initiate`)
@@ -549,7 +608,7 @@ describe('Videos (e2e)', () => {
         .send({ part_numbers: [1] })
         .expect(201);
 
-      const uploadUrl = partsRes.body.parts[0].upload_url;
+      const uploadUrl = (partsRes.body as PartsBody).parts[0].upload_url;
 
       const garbage = Buffer.alloc(6 * 1024 * 1024, 'x');
       const putRes = await fetch(uploadUrl, {
@@ -565,12 +624,8 @@ describe('Videos (e2e)', () => {
         .send({ parts: [{ PartNumber: 1, ETag: etag }] })
         .expect(201);
 
-      expect(complete.body.status).toBe('processing');
+      expect((complete.body as CompleteBody).status).toBe('processing');
 
-      // Wait for the worker to attempt processing the garbage data. The worker
-      // will fail (ffprobe on garbage), increment error_retries, and keep the
-      // status as 'processing' since retries < 3. Poll the DB directly to
-      // confirm the worker touched the video.
       await pollUntil(
         async () => {
           const rows = await dataSource.query<
@@ -585,13 +640,11 @@ describe('Videos (e2e)', () => {
         2000,
       );
 
-      // The system should still be alive and the video should not be 'ready'
       const videoInfo = await request(app.getHttpServer())
         .get(`/videos/${publicId}`)
         .expect(200);
-      expect(videoInfo.body.status).not.toBe('ready');
+      expect((videoInfo.body as VideoInfoBody).status).not.toBe('ready');
 
-      // Retry on a non-error video should return 409
       await request(app.getHttpServer())
         .post(`/videos/${publicId}/retry`)
         .set(authHeader(access_token))

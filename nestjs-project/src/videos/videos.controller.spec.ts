@@ -13,31 +13,6 @@ import {
 
 describe('VideosController', () => {
   let controller: VideosController;
-  let videosService: jest.Mocked<
-    Pick<
-      VideosService,
-      | 'createDraft'
-      | 'findByPublicId'
-      | 'findByChannel'
-      | 'initiateUpload'
-      | 'resetToDraft'
-      | 'updateStatus'
-      | 'enqueueProcessing'
-      | 'assertStatusTransition'
-      | 'retryProcessing'
-    >
-  >;
-  let storageService: jest.Mocked<
-    Pick<
-      StorageService,
-      | 'createMultipartUpload'
-      | 'presignUploadPart'
-      | 'completeMultipartUpload'
-      | 'abortMultipartUpload'
-      | 'getVideoKey'
-      | 'presignGetUrl'
-    >
-  >;
   let channelRepo: jest.Mocked<Pick<Repository<Channel>, 'findOne'>>;
 
   const mockVideosService = {
@@ -94,8 +69,6 @@ describe('VideosController', () => {
     }).compile();
 
     controller = module.get(VideosController);
-    videosService = module.get(VideosService);
-    storageService = module.get(StorageService);
     channelRepo = module.get(getRepositoryToken(Channel));
   });
 
@@ -214,7 +187,7 @@ describe('VideosController', () => {
         mockVideo,
         VideoStatus.UPLOADING,
       );
-      expect(storageService.createMultipartUpload).toHaveBeenCalledWith(
+      expect(mockStorageService.createMultipartUpload).toHaveBeenCalledWith(
         'abc123def45',
         'video.mp4',
         'video/mp4',
@@ -292,7 +265,7 @@ describe('VideosController', () => {
         parts: [{ PartNumber: 1, ETag: 'etag-1' }],
       });
 
-      expect(storageService.completeMultipartUpload).toHaveBeenCalledWith(
+      expect(mockStorageService.completeMultipartUpload).toHaveBeenCalledWith(
         'abc123def45',
         'mp4',
         's3-upload-001',
@@ -428,7 +401,7 @@ describe('VideosController', () => {
     it('should abort multipart upload and reset to draft', async () => {
       await controller.abortUpload(mockVideo);
 
-      expect(storageService.abortMultipartUpload).toHaveBeenCalledWith(
+      expect(mockStorageService.abortMultipartUpload).toHaveBeenCalledWith(
         'abc123def45',
         'mp4',
         's3-upload-001',
@@ -452,7 +425,7 @@ describe('VideosController', () => {
 
       await controller.abortUpload(noUploadVideo);
 
-      expect(storageService.abortMultipartUpload).not.toHaveBeenCalled();
+      expect(mockStorageService.abortMultipartUpload).not.toHaveBeenCalled();
       expect(mockVideosService.resetToDraft).toHaveBeenCalled();
     });
   });

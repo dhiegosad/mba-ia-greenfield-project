@@ -1,8 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bullmq';
-import { Repository } from 'typeorm';
-import { Queue } from 'bullmq';
 import { Video, VideoStatus, ProcessingStep } from './entities/video.entity';
 import { VideosService } from './videos.service';
 import { StorageService } from './storage.service';
@@ -13,12 +11,6 @@ import {
 
 describe('VideosService', () => {
   let service: VideosService;
-  let videoRepo: jest.Mocked<
-    Pick<
-      Repository<Video>,
-      'create' | 'save' | 'findOne' | 'find' | 'update' | 'increment'
-    >
-  >;
 
   const mockVideoRepo = {
     create: jest.fn(),
@@ -46,7 +38,6 @@ describe('VideosService', () => {
     }).compile();
 
     service = module.get(VideosService);
-    videoRepo = module.get(getRepositoryToken(Video));
   });
 
   describe('createDraft', () => {
@@ -72,7 +63,12 @@ describe('VideosService', () => {
           status: VideoStatus.DRAFT,
         }),
       );
-      expect(mockVideoRepo.create.mock.calls[0][0].public_id).toHaveLength(11);
+      const createdDraft = (
+        mockVideoRepo.create.mock.calls[0] as unknown[]
+      )[0] as {
+        public_id: string;
+      };
+      expect(createdDraft.public_id).toHaveLength(11);
       expect(result).toEqual(savedVideo);
     });
 

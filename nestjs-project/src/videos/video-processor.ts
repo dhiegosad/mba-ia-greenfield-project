@@ -85,7 +85,7 @@ export class VideoProcessor extends WorkerHost {
         tempInputPath,
       ]);
 
-      const probe: FfprobeOutput = JSON.parse(ffprobeOut);
+      const probe = JSON.parse(ffprobeOut) as FfprobeOutput;
       const videoStream = probe.streams.find((s) => s.codec_type === 'video');
       if (!videoStream) {
         throw new Error('No video stream found');

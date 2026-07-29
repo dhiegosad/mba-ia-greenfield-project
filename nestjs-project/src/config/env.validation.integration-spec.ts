@@ -1,4 +1,5 @@
 import { envValidationSchema } from './env.validation';
+import type Joi from 'joi';
 
 const requiredEnv = {
   DB_USERNAME: 'user',
@@ -8,7 +9,9 @@ const requiredEnv = {
   JWT_REFRESH_SECRET: 'refresh-secret',
 };
 
-const validate = (env: Record<string, string>) =>
+const validate = (
+  env: Record<string, string>,
+): Joi.ValidationResult<Record<string, string>> =>
   envValidationSchema.validate(
     { ...requiredEnv, ...env },
     { allowUnknown: true, abortEarly: false },
@@ -32,8 +35,10 @@ describe('envValidationSchema — SWAGGER_ENABLED', () => {
   });
 
   it('should apply default false when SWAGGER_ENABLED is not set', () => {
-    const { value, error } = validate({});
-    expect(error).toBeUndefined();
-    expect(value.SWAGGER_ENABLED).toBe('false');
+    const result = validate({});
+    expect(result.error).toBeUndefined();
+    expect((result.value as Record<string, string>).SWAGGER_ENABLED).toBe(
+      'false',
+    );
   });
 });

@@ -10,9 +10,6 @@ import { Video } from '../entities/video.entity';
 
 describe('VideoOwnerGuard', () => {
   let guard: VideoOwnerGuard;
-  let videosService: jest.Mocked<
-    Pick<VideosService, 'findByPublicId' | 'assertOwnership'>
-  >;
 
   const mockVideosService = {
     findByPublicId: jest.fn(),
@@ -51,7 +48,6 @@ describe('VideoOwnerGuard', () => {
     }).compile();
 
     guard = module.get(VideoOwnerGuard);
-    videosService = module.get(VideosService);
   });
 
   it('should allow the owner of the video', async () => {
