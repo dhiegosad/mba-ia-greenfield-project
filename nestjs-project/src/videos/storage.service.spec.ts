@@ -1,6 +1,12 @@
 import { Test } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
-import { S3Client } from '@aws-sdk/client-s3';
+import {
+  CreateMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import storageConfig from '../config/storage.config';
 import { StorageService } from './storage.service';
@@ -10,10 +16,13 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn(),
 }));
 
-const mockS3Send = jest.fn();
+const mockS3Send: jest.Mock = jest.fn();
 
 jest.mock('@aws-sdk/client-s3', () => {
-  const actual = jest.requireActual('@aws-sdk/client-s3');
+  const actual =
+    jest.requireActual<typeof import('@aws-sdk/client-s3')>(
+      '@aws-sdk/client-s3',
+    );
   return {
     ...actual,
     S3Client: jest.fn(() => ({
@@ -21,6 +30,8 @@ jest.mock('@aws-sdk/client-s3', () => {
     })),
   };
 });
+
+const mockedGetSignedUrl = getSignedUrl as jest.Mock;
 
 describe('StorageService', () => {
   let service: StorageService;
@@ -65,14 +76,16 @@ describe('StorageService', () => {
 
       expect(uploadId).toBe('upload-001');
       expect(mockS3Send).toHaveBeenCalledTimes(1);
-      const commandArg = mockS3Send.mock.calls[0][0];
+      const commandArg = (
+        mockS3Send.mock.calls[0] as unknown[]
+      )[0] as CreateMultipartUploadCommand;
       expect(commandArg.constructor.name).toBe('CreateMultipartUploadCommand');
     });
   });
 
   describe('presignUploadPart', () => {
     it('should generate a pre-signed URL for an upload part', async () => {
-      (getSignedUrl as jest.Mock).mockResolvedValueOnce(
+      mockedGetSignedUrl.mockResolvedValueOnce(
         'http://minio:9000/bucket/key?part=1&signature=xyz',
       );
 
@@ -84,7 +97,7 @@ describe('StorageService', () => {
       );
 
       expect(url).toContain('http://minio:9000');
-      expect(getSignedUrl).toHaveBeenCalledTimes(1);
+      expect(mockedGetSignedUrl).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -97,7 +110,9 @@ describe('StorageService', () => {
       ]);
 
       expect(mockS3Send).toHaveBeenCalledTimes(1);
-      const commandArg = mockS3Send.mock.calls[0][0];
+      const commandArg = (
+        mockS3Send.mock.calls[0] as unknown[]
+      )[0] as CompleteMultipartUploadCommand;
       expect(commandArg.constructor.name).toBe(
         'CompleteMultipartUploadCommand',
       );
@@ -111,25 +126,27 @@ describe('StorageService', () => {
       await service.abortMultipartUpload('video-1', 'mp4', 'upload-001');
 
       expect(mockS3Send).toHaveBeenCalledTimes(1);
-      const commandArg = mockS3Send.mock.calls[0][0];
+      const commandArg = (
+        mockS3Send.mock.calls[0] as unknown[]
+      )[0] as AbortMultipartUploadCommand;
       expect(commandArg.constructor.name).toBe('AbortMultipartUploadCommand');
     });
   });
 
   describe('presignGetUrl', () => {
     it('should generate a pre-signed GET URL for streaming', async () => {
-      (getSignedUrl as jest.Mock).mockResolvedValueOnce(
+      mockedGetSignedUrl.mockResolvedValueOnce(
         'http://minio:9000/bucket/key?signature=abc',
       );
 
       const url = await service.presignGetUrl('videos/v-1/original.mp4', 21600);
 
       expect(url).toContain('http://minio:9000');
-      expect(getSignedUrl).toHaveBeenCalledTimes(1);
+      expect(mockedGetSignedUrl).toHaveBeenCalledTimes(1);
     });
 
     it('should include Content-Disposition when downloadFilename is provided', async () => {
-      (getSignedUrl as jest.Mock).mockResolvedValueOnce(
+      mockedGetSignedUrl.mockResolvedValueOnce(
         'http://minio:9000/bucket/key?download',
       );
 
@@ -139,7 +156,11 @@ describe('StorageService', () => {
         'my-video.mp4',
       );
 
-      const commandArg = (getSignedUrl as jest.Mock).mock.calls[0][1];
+      const commandArg: { input: { ResponseContentDisposition: string } } = (
+        mockedGetSignedUrl.mock.calls[0] as unknown[]
+      )[1] as {
+        input: { ResponseContentDisposition: string };
+      };
       expect(commandArg.input.ResponseContentDisposition).toBe(
         'attachment; filename="my-video.mp4"',
       );
@@ -154,7 +175,9 @@ describe('StorageService', () => {
       await service.putObject('videos/v-1/thumbnail.jpg', body, 'image/jpeg');
 
       expect(mockS3Send).toHaveBeenCalledTimes(1);
-      const commandArg = mockS3Send.mock.calls[0][0];
+      const commandArg = (
+        mockS3Send.mock.calls[0] as unknown[]
+      )[0] as PutObjectCommand;
       expect(commandArg.constructor.name).toBe('PutObjectCommand');
     });
   });
@@ -166,7 +189,9 @@ describe('StorageService', () => {
       await service.deleteObject('videos/v-1/original.mp4');
 
       expect(mockS3Send).toHaveBeenCalledTimes(1);
-      const commandArg = mockS3Send.mock.calls[0][0];
+      const commandArg = (
+        mockS3Send.mock.calls[0] as unknown[]
+      )[0] as DeleteObjectCommand;
       expect(commandArg.constructor.name).toBe('DeleteObjectCommand');
     });
   });

@@ -1,4 +1,3 @@
-import type { ConfigType } from '@nestjs/config';
 import queueConfig from './queue.config';
 
 describe('queueConfig', () => {

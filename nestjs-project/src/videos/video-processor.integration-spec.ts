@@ -116,7 +116,7 @@ describe('VideoProcessor (integration)', () => {
 
       await processor.process({
         data: { videoId: savedVideo.id },
-      } as Job);
+      } as unknown as Job<{ videoId: string }>);
 
       const updated = await videoRepo.findOneBy({ id: savedVideo.id });
       expect(updated!.status).toBe(VideoStatus.READY);
@@ -164,7 +164,9 @@ describe('VideoProcessor (integration)', () => {
       );
 
       await expect(
-        processor.process({ data: { videoId: savedVideo.id } } as Job),
+        processor.process({
+          data: { videoId: savedVideo.id },
+        } as unknown as Job<{ videoId: string }>),
       ).rejects.toThrow();
 
       const updated = await videoRepo.findOneBy({ id: savedVideo.id });

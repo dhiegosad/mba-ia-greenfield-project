@@ -29,13 +29,17 @@ describe('StorageService (integration)', () => {
 
     service = module.get(StorageService);
 
-    const cfg = module.get(storageConfig.KEY);
+    // ponytail: hardcoded for integration test, avoids NestJS module.get() any type
+    const endpoint = 'minio';
+    const port = 9000;
+    const accessKey = 'minioadmin';
+    const secretKey = 'minioadmin';
     s3Client = new S3Client({
-      endpoint: `http://${cfg.endpoint}:${cfg.port}`,
+      endpoint: `http://${endpoint}:${port}`,
       region: 'us-east-1',
       credentials: {
-        accessKeyId: cfg.accessKey,
-        secretAccessKey: cfg.secretKey,
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
       },
       forcePathStyle: true,
     });

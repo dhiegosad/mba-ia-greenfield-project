@@ -1,4 +1,3 @@
-import type { ConfigType } from '@nestjs/config';
 import storageConfig from './storage.config';
 
 describe('storageConfig', () => {
